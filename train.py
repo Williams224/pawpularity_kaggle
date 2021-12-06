@@ -110,7 +110,9 @@ def test_loop(dataloader, model, loss_fn):
 
 if __name__ == "__main__":
 
-    pet_images = PetImagesDataset("data/train.csv", "data/train", (28, 28))
+    target_resize = (28, 28)
+
+    pet_images = PetImagesDataset("data/train.csv", "data/train", target_resize)
 
     lengths = [int(len(pet_images) * 0.8), int(len(pet_images) * 0.2) + 1]
     print(lengths)
