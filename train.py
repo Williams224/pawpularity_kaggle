@@ -123,6 +123,7 @@ def test_loop(dataloader, model, loss_fn, device):
 if __name__ == "__main__":
 
     target_resize = (28, 28)
+    print(f"target resize {target_resize}")
 
     pet_images = PetImagesDataset("data/train.csv", "data/train", target_resize)
 
