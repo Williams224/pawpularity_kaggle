@@ -10,6 +10,9 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.autograd import Variable
 from skimage.transform import resize
+import timm
+import math
+from datetime import datetime
 
 
 class PetImagesDataset(Dataset):
@@ -30,6 +33,7 @@ class PetImagesDataset(Dataset):
         img_path = os.path.join(self.img_dir, self.img_labels.iloc[idx, 0] + ".jpg")
         image = np.transpose(read_image(img_path), (1, 2, 0))
         image = self.downsampling(image, self.downsize_output)
+        image = np.transpose(image, (2, 1, 0))
         label = self.img_labels.iloc[idx, 1]
         return image, label
 
@@ -42,23 +46,7 @@ def plot_random_image(dataset):
     plt.axis("off")
     plt.imshow(np.transpose(img, (1, 2, 0)))
     plt.show()
-
-
-class Net(nn.Module):
-    def __init__(self):
-        super(Net, self).__init__()
-        self.flatten = nn.Flatten(start_dim=1, end_dim=-1)
-        self.sequential_stack = nn.Sequential(
-            nn.Linear(28 * 28 * 3, 512),
-            nn.ReLU(),
-            nn.Linear(512, 512),
-            nn.ReLU(),
-            nn.Linear(512, 1),
-        )
-
-    def forward(self, x):
-        x = self.flatten(x)
-        return self.sequential_stack(x)
+    return figure
 
 
 def compare_images(i1, i2):
@@ -68,44 +56,68 @@ def compare_images(i1, i2):
     axarr[1].imshow(i2)
     axarr[1].set_axis_off()
     plt.show()
+    return f
+
+
+class Net(nn.Module):
+    def __init__(self):
+        super(Net, self).__init__()
+        self.model = timm.create_model(
+            "efficientnet_b3", pretrained=True, num_classes=100
+        )
+        self.fc1 = nn.Linear(100, 120)
+        self.fc2 = nn.Linear(120, 84)
+        self.fc3 = nn.Linear(84, 1)
+
+    def forward(self, x):
+        x = self.model(x)
+        x = F.relu(self.fc1(x))
+        x = F.relu(self.fc2(x))
+        x = self.fc3(x)
+        return x
 
 
 def train_loop(dataloader, model, loss_fn, optimizer):
-    size = len(dataloader.dataset)
+    running_loss = 0.0
+    n_batches = 0
+    num_batches = len(dataloader)
     for batch, (X, y) in enumerate(dataloader):
         print(batch)
         X = X.float()
-        y = y.float()
+        y = y.float().unsqueeze(1)
+        optimizer.zero_grad()
         pred = model(X)
         loss = loss_fn(pred, y)
-        optimizer.zero_grad()
         loss.backward()
         optimizer.step()
+        running_loss += loss.item()
+        n_batches += 1
+        current_training_loss = running_loss / n_batches
+        print(f"Done {batch} of {num_batches}")
+        print(f"batch loss = {loss}")
+        print(f"current average training loss = {current_training_loss}")
 
-        loss, current = loss.item(), batch * len(X)
-        print(f"loss: {loss:>7f}  [{current:>5d}/{size:>5d}]")
-
-    loss = loss.item()
-    print(f"training loss is: {loss}")
+    training_loss = running_loss / n_batches
+    print(f"training loss is: {training_loss}")
+    rmse = math.sqrt(training_loss)
+    print(f" avg rmse: {rmse}")
     return loss
 
 
 def test_loop(dataloader, model, loss_fn):
-    size = len(dataloader.dataset)
     num_batches = len(dataloader)
-    test_loss, correct = 0, 0
-
+    test_loss = 0.0
     with torch.no_grad():
         for X, y in dataloader:
+            X = X.float()
+            y = y.float().unsqueeze(1)
             pred = model(X)
             test_loss += loss_fn(pred, y).item()
-            correct += (pred.argmax(1) == y).type(torch.float).sum().item()
 
-    test_loss /= num_batches
-    correct /= size
-    print(
-        f"Test Error: \n Accuracy: {(100*correct):>0.1f}%, Avg loss: {test_loss:>8f} \n"
-    )
+    avg_test_loss = test_loss / num_batches
+    print(f"Avg loss: {avg_test_loss:>8f} \n")
+    rmse = math.sqrt(avg_test_loss)
+    print(f" avg rmse: {rmse}")
 
 
 if __name__ == "__main__":
@@ -115,16 +127,14 @@ if __name__ == "__main__":
     pet_images = PetImagesDataset("data/train.csv", "data/train", target_resize)
 
     lengths = [int(len(pet_images) * 0.8), int(len(pet_images) * 0.2) + 1]
-    print(lengths)
-    print(len(pet_images))
     training_dataset, test_dataset = random_split(pet_images, lengths)
 
-    batch_size = 64
+    batch_size = 256
 
     train_dataloader = DataLoader(
-        training_dataset, batch_size=batch_size, num_workers=8
+        training_dataset, batch_size=batch_size, num_workers=14
     )
-    test_dataloader = DataLoader(test_dataset, batch_size=batch_size, num_workers=8)
+    test_dataloader = DataLoader(test_dataset, batch_size=batch_size, num_workers=14)
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
     model = Net().to(device)
@@ -133,12 +143,20 @@ if __name__ == "__main__":
 
     loss_fn = nn.MSELoss()
 
-    learning_rate = 0.003
-    optimizer = torch.optim.SGD(model.parameters(), lr=learning_rate)
+    learning_rate = 0.01
+    optimizer = torch.optim.SGD(model.parameters(), lr=learning_rate, momentum=0.9)
 
-    epochs = 10
+    epochs = 5
     for t in range(epochs):
+        start_time = datetime.now()
         print(f"Epoch {t+1}\n-------------------------------")
         train_loop(train_dataloader, model, loss_fn, optimizer)
         test_loop(test_dataloader, model, loss_fn)
+        end_time = datetime.now()
+        time_diff = (end_time - start_time).seconds / 60.0
+        print(f"Epoch took {time_diff} minute")
     print("Done!")
+
+    timestamp = datetime.utcnow().timestamp()
+
+    torch.save(model.state_dict(), f"experiments/models/model_state_dict_{timestamp}")
