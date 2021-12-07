@@ -1,4 +1,5 @@
 from train import Net, PetImagesDataset
+from torch.utils.data import Dataset, random_split, DataLoader
 import torch
 
 if __name__ == "__main__":
@@ -9,8 +10,15 @@ if __name__ == "__main__":
     model.eval()
     print(model)
 
-    pet_images = PetImagesDataset("data/train.csv", "data/train", (28, 28))
+    pet_images_submission = DataLoader(
+        PetImagesDataset("data/test.csv", "data/test", (28, 28)), batch_size=1
+    )
 
-    pred = model(torch.from_numpy(pet_images[0][0]).float())
-    actual = pet_images[0][1]
-    print(f"pred = {pred}, actual = {actual}")
+    X, y = next(iter(pet_images_submission))
+
+    print(X)
+    print(y)
+
+    pred = model(X)
+    actual = y.item()
+    print(f"pred = {pred.item()}, actual = {actual}")
