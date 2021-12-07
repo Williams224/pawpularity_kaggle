@@ -77,14 +77,14 @@ class Net(nn.Module):
         return x
 
 
-def train_loop(dataloader, model, loss_fn, optimizer):
+def train_loop(dataloader, model, loss_fn, optimizer, device):
     running_loss = 0.0
     n_batches = 0
     num_batches = len(dataloader)
     for batch, (X, y) in enumerate(dataloader):
         print(batch)
-        X = X.float()
-        y = y.float().unsqueeze(1)
+        X = X.float().to(device)
+        y = y.float().unsqueeze(1).to(device)
         optimizer.zero_grad()
         pred = model(X)
         loss = loss_fn(pred, y)
@@ -104,13 +104,13 @@ def train_loop(dataloader, model, loss_fn, optimizer):
     return loss
 
 
-def test_loop(dataloader, model, loss_fn):
+def test_loop(dataloader, model, loss_fn, device):
     num_batches = len(dataloader)
     test_loss = 0.0
     with torch.no_grad():
         for X, y in dataloader:
-            X = X.float()
-            y = y.float().unsqueeze(1)
+            X = X.float().to(device)
+            y = y.float().unsqueeze(1).to(device)
             pred = model(X)
             test_loss += loss_fn(pred, y).item()
 
@@ -137,6 +137,8 @@ if __name__ == "__main__":
     test_dataloader = DataLoader(test_dataset, batch_size=batch_size, num_workers=14)
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
+
+    print(f"Device = {device}")
     model = Net().to(device)
 
     print(model)
@@ -150,8 +152,8 @@ if __name__ == "__main__":
     for t in range(epochs):
         start_time = datetime.now()
         print(f"Epoch {t+1}\n-------------------------------")
-        train_loop(train_dataloader, model, loss_fn, optimizer)
-        test_loop(test_dataloader, model, loss_fn)
+        train_loop(train_dataloader, model, loss_fn, optimizer, device)
+        test_loop(test_dataloader, model, loss_fn, device)
         end_time = datetime.now()
         time_diff = (end_time - start_time).seconds / 60.0
         print(f"Epoch took {time_diff} minute")
